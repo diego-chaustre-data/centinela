@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Centinela · Detección de fraude y lavado de activos en SQL</title>
+<meta name="description" content="Motor de detección de fraude y lavado de activos escrito en SQL. PostgreSQL real corriendo en tu navegador sobre 137.000 transacciones ficticias.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f3efe4; --sheet:#fbf9f3; --paper2:#e9e4d5; --ink:#131313; --red:#d7281c; --muted:#6d675b;
+  --rule:rgba(19,19,19,.17); --grid:rgba(19,19,19,.04); --hl:#ffe55c;
+  --disp:'Barlow Condensed','Arial Narrow',Impact,sans-serif; --sans:'IBM Plex Sans',system-ui,'Segoe UI',sans-serif; --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;background:var(--paper);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:32px 32px}
+a{color:var(--ink)}
+button{font-family:inherit;cursor:pointer;color:inherit}
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+.mono{font-family:var(--mono)}
+
+/* Franja superior */
+.strip{background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase}
+.strip .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-top:9px;padding-bottom:9px;flex-wrap:wrap}
+.strip b{font-family:var(--disp);font-weight:800;font-size:22px;letter-spacing:.06em;display:flex;align-items:center;gap:8px;line-height:1}
+.strip b::before{content:"";width:13px;height:13px;background:var(--red)}
+.strip .mid{opacity:.62}
+.led{display:inline-block;width:8px;height:8px;background:#6d675b;margin-right:7px}
+.led.on{background:#49d17d}
+
+/* Portada */
+.hero{padding:38px 0 26px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.hero h1{font-family:var(--disp);font-weight:800;text-transform:uppercase;font-size:clamp(50px,9.300vw,128px);line-height:.9;letter-spacing:-.005em;margin:0 0 26px}
+.hero h1 mark{background:var(--red);color:#fff;padding:.02em .12em 0;display:inline-block;line-height:.9;margin-top:.08em}
+.cols{display:grid;grid-template-columns:1.1fr .9fr;gap:44px;align-items:start}
+.cols p{font-size:17px;margin:0 0 12px;max-width:58ch}
+.cols p.fine{font-size:14px;color:var(--muted);border-left:3px solid var(--ink);padding-left:12px}
+.boot{background:var(--sheet);border:1.5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);padding:18px 20px 20px}
+.boot h3{margin:0 0 6px;font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.step{display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:1px solid var(--rule);color:var(--muted);font-size:14px}
+.step i{font-family:var(--mono);font-style:normal;font-size:12px;width:22px;flex:none}
+.step u{flex:1;border-bottom:1.5px dotted var(--rule);text-decoration:none;transform:translateY(-4px);min-width:12px}
+.step small{font-family:var(--mono);font-size:12px;white-space:nowrap}
+.step.run{color:var(--ink);font-weight:600}
+.step.run small::after{content:"■";color:var(--red);animation:blink .7s steps(2) infinite}
+.step.done{color:var(--ink)}
+.step.done small{font-weight:600}
+@keyframes blink{50%{opacity:0}}
+.go{width:100%;margin-top:16px;padding:14px 16px;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font-family:var(--disp);font-weight:700;
+  font-size:26px;letter-spacing:.05em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;transition:background .15s}
+.go::after{content:"→";font-family:var(--sans);font-weight:400}
+.go:hover:not(:disabled){background:var(--red);border-color:var(--red)}
+.go:disabled{background:transparent;color:var(--muted);border-color:var(--rule);cursor:default}
+.bootmsg{margin-top:12px;font-size:13.5px;color:var(--muted);min-height:20px}
+.err{color:var(--red);font-weight:600}
+
+/* Campo de clientes */
+.campo-box{margin:10px 0 0;padding:16px 0 20px;border-top:3px solid var(--ink)}
+.campo-head{display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.campo-head h2{font-family:var(--disp);font-weight:700;text-transform:uppercase;font-size:26px;letter-spacing:.03em;margin:0;line-height:1}
+.campo-head span{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.campo-rel{position:relative}
+.campo{display:grid;grid-template-columns:repeat(100,1fr);gap:2px}
+.campo i{aspect-ratio:1;background:rgba(19,19,19,.13);transition:background .18s,transform .18s}
+.campo i.hit{background:var(--red);transform:scale(1.55);cursor:pointer;position:relative;z-index:1}
+.campo i.hit.top{outline:1.5px solid var(--ink);outline-offset:1px}
+.campo i.hit:hover{transform:scale(2.6);z-index:2}
+.scan{position:absolute;top:-6px;bottom:-6px;width:3px;background:var(--red);left:0;opacity:0;pointer-events:none}
+.scan.go-scan{animation:scan 1.5s linear forwards}
+@keyframes scan{0%{left:0;opacity:1}96%{opacity:1}100%{left:100%;opacity:0}}
+
+/* Tablero */
+#tablero{display:none;padding-bottom:70px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);border-top:3px solid var(--ink);border-bottom:1.5px solid var(--ink);margin-bottom:18px}
+.kpi{padding:14px 16px 12px;border-right:1px solid var(--rule)}
+.kpi:last-child{border-right:0}
+.kpi b{display:block;font-family:var(--disp);font-weight:700;font-size:clamp(38px,5vw,66px);line-height:.95;font-variant-numeric:tabular-nums}
+.kpi span{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kpi.hot b{color:var(--red)}
+.rules{display:grid;grid-template-columns:repeat(6,1fr);gap:0;margin-bottom:26px;border:1.5px solid var(--ink);background:var(--sheet)}
+.rule{background:none;border:0;border-right:1px solid var(--rule);padding:12px 12px 14px;text-align:left;transition:background .12s,color .12s}
+.rule:last-child{border-right:0}
+.rule code{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--red);background:none;padding:0}
+.rule b{display:block;font-family:var(--disp);font-weight:700;font-size:44px;line-height:1}
+.rule span{font-size:12.5px;display:block;line-height:1.3}
+.rule:hover,.rule.sel{background:var(--ink);color:var(--paper)}
+.tabs{display:flex;border-bottom:3px solid var(--ink);margin-bottom:20px;overflow-x:auto}
+.tab{background:none;border:0;padding:9px 16px 7px;font-family:var(--disp);font-weight:600;font-size:20px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;color:var(--muted)}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--ink);color:var(--paper)}
+.pane{display:none} .pane.on{display:block}
+.card{background:var(--sheet);border:1.5px solid var(--ink);padding:18px 20px 20px}
+.card h2{margin:0 0 4px;font-family:var(--disp);font-weight:700;font-size:28px;text-transform:uppercase;letter-spacing:.02em;line-height:1.05}
+.card p.lead{margin:0 0 14px;color:var(--muted);font-size:14px;max-width:80ch}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:22px;align-items:start}
+.scroll{overflow:auto;max-height:640px;border:1.5px solid var(--ink);background:var(--sheet)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{position:sticky;top:0;background:var(--paper2);text-align:left;padding:8px 10px;font-family:var(--mono);font-weight:600;font-size:11px;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;box-shadow:inset 0 -1.5px 0 var(--ink)}
+td{padding:8px 10px;border-top:1px solid var(--rule);vertical-align:top}
+td.n,th.n{text-align:right;font-family:var(--mono);white-space:nowrap}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--hl)} tr.sel td{background:var(--hl)} tr.sel td:first-child{box-shadow:inset 5px 0 0 var(--red)}
+.tag{display:inline-block;padding:1px 6px;font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;border:1.5px solid var(--ink)}
+.sev-critica{background:var(--red);border-color:var(--red);color:#fff} .sev-alta{background:var(--ink);color:var(--paper)} .sev-media{background:transparent}
+.st-nueva{background:transparent} .st-en_revision{background:var(--hl)}
+.st-descartada{border-color:var(--muted);color:var(--muted);text-decoration:line-through} .st-reportada_ros{border-color:var(--red);color:var(--red)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+select,input[type=text],input[type=number],textarea{background:#fff;border:1.5px solid var(--ink);color:var(--ink);border-radius:0;padding:7px 9px;font-family:inherit;font-size:14px}
+input[type=number]{font-family:var(--mono)}
+textarea{width:100%;resize:vertical}
+select:focus,input:focus,textarea:focus,button:focus-visible{outline:3px solid var(--hl);outline-offset:1px}
+.detail{position:sticky;top:12px;box-shadow:7px 7px 0 var(--ink)}
+.detail .empty{color:var(--muted);padding:50px 10px;text-align:center}
+.dhead{position:relative;padding-right:150px;min-height:62px}
+.dhead small{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.stamp{position:absolute;right:0;top:2px;transform:rotate(-7deg);border:3px double currentColor;padding:2px 10px;font-family:var(--disp);font-weight:700;font-size:24px;letter-spacing:.08em;text-transform:uppercase;opacity:.88;animation:stamp .28s cubic-bezier(.2,1.6,.4,1)}
+.stamp.reportada_ros{color:var(--red)} .stamp.descartada{color:var(--muted)} .stamp.en_revision{color:var(--ink)}
+@keyframes stamp{from{transform:rotate(-7deg) scale(2.4);opacity:0}}
+.why{border-left:6px solid var(--red);padding:2px 0 2px 14px;margin:14px 0;font-size:16.5px;line-height:1.5}
+.why b{display:block;font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--red);margin-bottom:3px}
+.who{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);border-width:1px 0 0 1px;margin:12px 0;font-size:13.5px}
+.who div{padding:7px 10px;border:1px solid var(--rule);border-width:0 1px 1px 0}
+.who span{display:block;font-family:var(--mono);color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.08em}
+.score{font-family:var(--disp);font-weight:700;font-size:26px;line-height:1}
+h4{margin:20px 0 8px;font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;display:flex;align-items:center;gap:10px}
+h4::after{content:"";flex:1;height:1.5px;background:var(--ink)}
+details{border:1.5px solid var(--ink);margin-top:14px}
+summary{padding:9px 12px;cursor:pointer;font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+summary:hover{background:var(--hl)}
+pre{margin:0;padding:14px;background:var(--ink);overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:#e9e4d6;max-height:420px}
+pre .c{color:#8d877a} pre .k{color:var(--hl)} pre .s{color:#ff9a8f}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.btn{border:1.5px solid var(--ink);background:transparent;color:var(--ink);padding:8px 12px;font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.05em;text-transform:uppercase;text-decoration:none;transition:background .12s,color .12s}
+.btn:hover{background:var(--ink);color:var(--paper)} .btn.red{border-color:var(--red);color:var(--red)} .btn.red:hover{background:var(--red);color:#fff}
+.btn.pri{background:var(--ink);color:var(--paper)} .btn.pri:hover{background:var(--red);border-color:var(--red)}
+.msg{margin-top:10px;font-size:13.5px;padding:9px 12px;display:none;border:1.5px solid var(--ink)}
+.msg.bad{display:block;background:var(--red);border-color:var(--red);color:#fff;font-weight:500}
+.msg.good{display:block;background:var(--hl)}
+.bar{height:10px;background:var(--paper2);min-width:70px;flex:1}
+.bar i{display:block;height:100%;background:var(--ink)}
+.note{font-size:13.5px;color:var(--ink);border:1.5px dashed var(--ink);padding:12px 14px;margin-top:14px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+#sql{font-family:var(--mono);font-size:13px;min-height:130px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.how ul{padding-left:18px;margin:8px 0 0} .how li{margin-bottom:6px}
+code{font-family:var(--mono);font-size:.92em;background:var(--paper2);padding:0 4px}
+footer{background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:11.5px;letter-spacing:.05em;padding:18px 0 22px;text-transform:uppercase}
+@media (max-width:1100px){.split{grid-template-columns:1fr} .detail{position:static}}
+@media (max-width:980px){
+  .cols,.grid2{grid-template-columns:1fr} .cols{gap:24px}
+  .kpis{grid-template-columns:repeat(2,1fr)} .kpi{border-bottom:1px solid var(--rule)}
+  .rules{grid-template-columns:repeat(2,1fr)} .rule{border-bottom:1px solid var(--rule)}
+  .strip .mid{display:none} .who{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:700px){.campo{grid-template-columns:repeat(50,1fr)} .dhead{padding-right:0} .stamp{position:static;display:inline-block;margin-top:8px}}
+</style>
+</head>
+<body>
+<div class="strip">
+  <div class="wrap">
+    <b>Centinela</b>
+    <span class="mid">Expediente BP-2026 · Unidad de cumplimiento · Banco Pamplonita (ficticio)</span>
+    <span><i class="led" id="dbdot"></i><span id="dbstate">PostgreSQL apagado</span></span>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="hero" id="inicio">
+    <div class="eyebrow">Detección de fraude y lavado de activos · escrito en SQL</div>
+    <h1>137.225 transacciones.<br>Unas pocas son <mark>fraude.</mark></h1>
+    <div class="cols">
+      <div>
+        <p>Centinela es un motor de detección escrito en SQL. Revisa todas las transacciones de un banco ficticio y señala pitufeo, cuentas mula, tarjetas clonadas y otros patrones que la norma colombiana (SARLAFT) obliga a vigilar.</p>
+        <p class="fine">No es un video ni una maqueta. Al abrir esta página se enciende un <b>PostgreSQL real dentro de tu navegador</b>, se crean las tablas, se generan los datos y las reglas corren en vivo. Nada sale de tu equipo.</p>
+      </div>
+      <div class="boot">
+        <h3>Preparación del banco</h3>
+        <div id="steps"></div>
+        <button class="go" id="go" disabled>Ejecutar detección</button>
+        <div class="bootmsg" id="bootmsg"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="campo-box" id="campo-box">
+    <div class="campo-head">
+      <h2>Los 2.000 clientes del banco</h2>
+      <span id="campo-info">Cada cuadro es un cliente. Todavía no se ha revisado ninguno.</span>
+    </div>
+    <div class="campo-rel"><div class="campo" id="campo"></div><div class="scan" id="scan"></div></div>
+  </section>
+
+  <section id="tablero">
+    <div class="kpis" id="kpis"></div>
+    <div class="rules" id="rules"></div>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab on" data-p="alertas">Alertas</button>
+      <button class="tab" data-p="riesgo">Clientes en riesgo</button>
+      <button class="tab" data-p="eval">¿Funciona?</button>
+      <button class="tab" data-p="calibrar">Calibrar</button>
+      <button class="tab" data-p="consola">Consola SQL</button>
+      <button class="tab" data-p="como">Cómo está hecho</button>
+    </nav>
+
+    <div class="pane on" id="p-alertas">
+      <div class="split">
+        <div class="card">
+          <h2>Cola de alertas</h2>
+          <p class="lead">Lo que vería un analista de cumplimiento al llegar a la oficina. Haz clic en una alerta.</p>
+          <div class="filters">
+            <select id="f-regla"><option value="">Todas las reglas</option></select>
+            <select id="f-estado">
+              <option value="">Todos los estados</option><option value="nueva">Nuevas</option><option value="en_revision">En revisión</option>
+              <option value="descartada">Descartadas</option><option value="reportada_ros">Reportadas (ROS)</option>
+            </select>
+            <button class="btn" id="f-cliente" style="display:none"></button>
+          </div>
+          <div class="scroll"><table id="t-alertas"></table></div>
+        </div>
+        <div class="card detail" id="detalle"><div class="empty">Selecciona una alerta para ver por qué saltó, las transacciones que la prueban y la consulta SQL que la encontró.</div></div>
+      </div>
+    </div>
+
+    <div class="pane" id="p-riesgo">
+      <div class="card">
+        <h2>Clientes de mayor riesgo</h2>
+        <p class="lead">Cada regla suma puntos. Un cliente que dispara varias reglas distintas sube en la lista; las alertas descartadas dejan de contar.</p>
+        <div class="scroll"><table id="t-riesgo"></table></div>
+      </div>
+    </div>
+
+    <div class="pane" id="p-eval">
+      <div class="card">
+        <h2>¿Encontró lo que se escondió?</h2>
+        <p class="lead">Los datos se generaron con fraude sembrado a propósito. Así se puede comprobar si cada regla encuentra sus casos y cuántas alertas levanta sobre clientes que no eran fraude.</p>
+        <div class="scroll"><table id="t-eval"></table></div>
+        <div class="note" id="eval-nota"></div>
+      </div>
+    </div>
+
+    <div class="pane" id="p-calibrar">
+      <div class="card">
+        <h2>Calibrar los umbrales</h2>
+        <p class="lead">Los umbrales están en una tabla, no dentro del código. Cambia un valor y recalcula: verás cuántos casos señalaría cada regla. Bajar un umbral atrapa más fraude, pero también llena la cola de falsos positivos. Prueba a bajar <code>perfil_veces_ingreso</code> de 5 a 3.</p>
+        <div class="grid2">
+          <div class="scroll"><table id="t-param"></table></div>
+          <div>
+            <div class="scroll"><table id="t-calib"></table></div>
+            <div class="acts"><button class="btn pri" id="recalc">Recalcular casos</button><button class="btn" id="restaurar">Restaurar valores</button></div>
+            <div class="msg" id="calib-msg"></div>
+          </div>
+        </div>
+        <div class="note">Esto solo cuenta los casos que cada vista devolvería. No modifica las alertas ya creadas.</div>
+      </div>
+    </div>
+
+    <div class="pane" id="p-consola">
+      <div class="card">
+        <h2>Consola SQL</h2>
+        <p class="lead">Es un PostgreSQL de verdad: escribe cualquier consulta. Prueba también a romper algo, por ejemplo borrar una transacción.</p>
+        <div class="chips" id="ejemplos"></div>
+        <textarea id="sql" spellcheck="false"></textarea>
+        <div class="acts"><button class="btn pri" id="run">Ejecutar (Ctrl + Enter)</button><span id="sql-info" class="mono" style="align-self:center;color:var(--muted);font-size:12.5px"></span></div>
+        <div class="msg" id="sql-msg"></div>
+        <div class="scroll" style="margin-top:12px"><table id="t-sql"></table></div>
+      </div>
+    </div>
+
+    <div class="pane" id="p-como">
+      <div class="grid2">
+        <div class="card how">
+          <h2>La base de datos</h2>
+          <ul>
+            <li><b>9 tablas</b>: clientes, cuentas, ciudades, transacciones, parámetros, reglas, alertas, bitácora y fraude sembrado.</li>
+            <li><b>Libro de solo-agregar</b>: un disparador impide modificar o borrar transacciones, igual que en un banco.</li>
+            <li><b>Restricciones CHECK</b>: montos positivos, transferencias siempre con contraparte, ciudad solo en canales físicos.</li>
+            <li><b>Bitácora de auditoría</b>: cada cambio de estado de una alerta queda registrado con responsable y justificación.</li>
+            <li><b>Un reporte enviado no se deshace</b>: la base rechaza cambiar una alerta ya reportada.</li>
+            <li><b>Detección repetible</b>: se puede correr cada noche sin duplicar alertas.</li>
+          </ul>
+        </div>
+        <div class="card how">
+          <h2>Las reglas</h2>
+          <ul>
+            <li>Cada regla es una <b>vista SQL</b> con las mismas columnas de salida.</li>
+            <li>El motor recorre las reglas activas con SQL dinámico: agregar una regla es crear una vista y registrarla.</li>
+            <li>Técnicas: <code>GROUP BY</code> y <code>HAVING</code>, agregados con <code>FILTER</code>, funciones de ventana <code>LAG()</code>, CTE, distancia de Haversine.</li>
+            <li>La explicación en lenguaje sencillo la arma la propia base de datos con los datos de cada caso.</li>
+          </ul>
+          <h4>Honestidad</h4>
+          <p style="margin:0;font-size:14px">Todos los datos son inventados. Es un proyecto de aprendizaje de Diego Chaustre, estudiante SENA de Bases de Datos, construido con asistencia de IA. No reemplaza un sistema de monitoreo real.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:22px">
+        <h2>Archivos SQL</h2>
+        <p class="lead">El mismo código que corre aquí funciona en un PostgreSQL 15 o superior instalado en un servidor.</p>
+        <div class="chips" style="margin:0">
+          <a class="btn" href="sql/01_esquema.sql">01 · Esquema</a><a class="btn" href="sql/02_datos_sinteticos.sql">02 · Datos sintéticos</a>
+          <a class="btn" href="sql/03_reglas_deteccion.sql">03 · Reglas de detección</a><a class="btn" href="sql/04_evaluacion.sql">04 · Evaluación</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap" style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap">
+  <span>Centinela · Banco Pamplonita es ficticio y todos los datos son sintéticos · PostgreSQL en el navegador con PGlite</span>
+  <span><a href="https://github.com/diego-chaustre-data/centinela" style="color:var(--paper)">Código en GitHub ↗</a> &nbsp;·&nbsp; <a href="https://diego-chaustre-data.github.io/" style="color:var(--paper)">Portafolio de Diego Chaustre ↗</a></span>
+</div></footer>
+
+<script type="module">
+import { PGlite } from './vendor/pglite/index.js';
+
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const num = n => Math.round(Number(n)).toLocaleString('es-CO');
+const cop = n => '$' + num(n);
+const seg1 = s => s.toFixed(1).replace('.', ',');
+const pintar = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+const TIPOS = { deposito_efectivo: 'Depósito en efectivo', retiro_efectivo: 'Retiro en efectivo', transferencia_recibida: 'Transferencia recibida',
+  transferencia_enviada: 'Transferencia enviada', compra_tarjeta: 'Compra con tarjeta', pago_pse: 'Pago PSE' };
+const ESTADOS = { nueva: 'Nueva', en_revision: 'En revisión', descartada: 'Descartada', reportada_ros: 'Reportada (ROS)' };
+const SELLOS = { en_revision: 'En revisión', descartada: 'Descartada', reportada_ros: 'Reportada · ROS' };
+const N_CLIENTES = 2000;
+// Reparte los clientes por todo el campo con una mezcla fija (siempre la misma)
+const mezcla = Array.from({ length: N_CLIENTES }, (_, i) => i);
+for (let i = N_CLIENTES - 1, s = 20261109; i > 0; i--) {
+  s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+  const j = s % (i + 1);
+  [mezcla[i], mezcla[j]] = [mezcla[j], mezcla[i]];
+}
+const celdaDe = id => mezcla[(id - 1) % N_CLIENTES];
+
+let db, reglasSQL = {}, alertaActual = null, baseCalib = null, paramsOriginales = null, filtroCliente = null;
+const q = async (sql, params) => (await db.query(sql, params)).rows;
+
+/* ---------- Campo de clientes ---------- */
+$('#campo').innerHTML = '<i></i>'.repeat(N_CLIENTES);
+const celdas = $('#campo').children;
+async function pintarCampo(animar) {
+  const rows = await q('SELECT cliente_id, nombre, puntaje, reglas FROM v_riesgo_clientes');
+  for (const c of celdas) { c.className = ''; c.removeAttribute('title'); c.onclick = null; c.style.transitionDelay = ''; }
+  for (const r of rows) {
+    const i = celdaDe(r.cliente_id), c = celdas[i];
+    if (animar) c.style.transitionDelay = ((i % 100) / 100 * 1.4).toFixed(2) + 's';
+    c.className = 'hit' + (r.puntaje >= 70 ? ' top' : '');
+    c.title = `${r.nombre} · ${r.reglas} · puntaje ${r.puntaje}`;
+    c.onclick = () => { filtroCliente = { id: r.cliente_id, nombre: r.nombre }; $('#f-regla').value = ''; $('#f-estado').value = ''; activar('alertas'); listarAlertas(); $('#tabs').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  }
+  if (animar) { const s = $('#scan'); s.classList.remove('go-scan'); void s.offsetWidth; s.classList.add('go-scan'); }
+  $('#campo-info').innerHTML = `<b style="color:var(--red)">${rows.length} de ${num(N_CLIENTES)}</b> clientes señalados. Pasa el cursor por un cuadro rojo o haz clic en él.`;
+}
+
+/* ---------- Arranque ---------- */
+function paso(texto) {
+  const el = document.createElement('div');
+  el.className = 'step';
+  el.innerHTML = `<i>${String($('#steps').children.length + 1).padStart(2, '0')}</i><span>${esc(texto)}</span><u></u><small></small>`;
+  $('#steps').appendChild(el);
+  return el;
+}
+async function correr(el, fn) {
+  el.classList.add('run'); await pintar();
+  const t0 = performance.now();
+  const r = await fn();
+  el.classList.remove('run'); el.classList.add('done');
+  el.querySelector('small').textContent = seg1((performance.now() - t0) / 1000) + ' s';
+  return r;
+}
+const leer = async ruta => { const r = await fetch(ruta); if (!r.ok) throw new Error('No se pudo leer ' + ruta); return r.text(); };
+
+async function arrancar() {
+  const p1 = paso('Encender PostgreSQL en el navegador');
+  const p2 = paso('Crear tablas, restricciones y disparadores');
+  const p3 = paso('Generar clientes y comportamiento normal');
+  const p4 = paso('Esconder el fraude y cargar el libro');
+  const p5 = paso('Cargar las 6 reglas de detección');
+  try {
+    const [s1, s2, s3, s4] = await Promise.all(['01_esquema', '02_datos_sinteticos', '03_reglas_deteccion', '04_evaluacion'].map(f => leer(`sql/${f}.sql`)));
+    await correr(p1, async () => { db = new PGlite(); await db.query('SELECT 1'); });
+    $('#dbdot').classList.add('on'); $('#dbstate').textContent = 'PostgreSQL encendido';
+    await correr(p2, () => db.exec(s1));
+    const corte = s2.indexOf('--  B · FRAUDE SEMBRADO');
+    const iniB = s2.lastIndexOf('-- =====', corte);
+    await correr(p3, () => db.exec(s2.slice(0, iniB)));
+    await correr(p4, () => db.exec(s2.slice(iniB)));
+    await correr(p5, async () => { await db.exec(s3); await db.exec(s4); });
+    for (const m of s3.matchAll(/--  (R\d) · [\s\S]*?CREATE VIEW[\s\S]*?;\r?\n/g)) reglasSQL[m[1]] = m[0].trim();
+    const [{ n }] = await q('SELECT count(*)::int n FROM transacciones');
+    $('#dbstate').textContent = `PostgreSQL · ${num(n)} transacciones`;
+    $('#bootmsg').innerHTML = `<b style="color:var(--ink)">${num(n)} transacciones cargadas.</b> Ninguna ha sido revisada todavía.`;
+    $('#go').disabled = false;
+  } catch (e) {
+    console.error(e);
+    $('#bootmsg').innerHTML = `<span class="err">No se pudo preparar la base de datos: ${esc(e.message)}</span>`;
+  }
+}
+
+/* ---------- Detección ---------- */
+function contar(el, hasta, fmt = num, ms = 900) {
+  const t0 = performance.now();
+  const tick = t => { const k = Math.min(1, (t - t0) / ms); el.textContent = fmt(hasta * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+$('#go').onclick = async () => {
+  const b = $('#go'); b.disabled = true; b.textContent = 'Analizando…'; await pintar();
+  const t0 = performance.now();
+  await q('SELECT * FROM detectar_fraude()');
+  const seg = (performance.now() - t0) / 1000;
+  b.textContent = 'Detección terminada';
+  $('#bootmsg').innerHTML = `Las 6 reglas revisaron todo en <b style="color:var(--red)">${seg1(seg)} segundos</b>.`;
+  paramsOriginales = await q('SELECT clave, valor::float8 valor FROM parametros');
+  $('#tablero').style.display = 'block';
+  $('#campo-box').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  await new Promise(r => setTimeout(r, 450));
+  await pintarCampo(true);
+  await pintarTodo(seg);
+};
+
+async function pintarTodo(seg) {
+  const [g] = await q('SELECT * FROM v_evaluacion_general');
+  const [{ monto }] = await q(`SELECT coalesce(sum(monto_involucrado),0)::float8 monto FROM alertas WHERE estado <> 'descartada'`);
+  const k = [
+    ['Transacciones analizadas', g.transacciones_analizadas, num, ''],
+    ['Segundos que tardó', seg, seg1, ''],
+    ['Alertas generadas', g.alertas, num, 'hot'],
+    ['Clientes señalados', g.clientes_con_alerta, num, 'hot'],
+    ['Millones bajo sospecha', monto / 1e6, v => '$' + num(v), 'hot'],
+  ];
+  $('#kpis').innerHTML = k.map(([t, , , c]) => `<div class="kpi ${c}"><b>0</b><span>${t}</span></div>`).join('');
+  document.querySelectorAll('#kpis b').forEach((el, i) => contar(el, k[i][1], k[i][2], 1500));
+  const reglas = await q(`SELECT r.codigo, r.nombre, count(a.id)::int n FROM reglas r LEFT JOIN alertas a ON a.regla_codigo = r.codigo GROUP BY 1,2 ORDER BY 1`);
+  $('#rules').innerHTML = reglas.map(r => `<button class="rule" data-r="${r.codigo}"><code>${r.codigo}</code><b>${r.n}</b><span>${esc(r.nombre)}</span></button>`).join('');
+  document.querySelectorAll('.rule').forEach(b => b.onclick = () => { filtroCliente = null; $('#f-regla').value = $('#f-regla').value === b.dataset.r ? '' : b.dataset.r; activar('alertas'); listarAlertas(); });
+  $('#f-regla').innerHTML = '<option value="">Todas las reglas</option>' + reglas.map(r => `<option value="${r.codigo}">${r.codigo} · ${esc(r.nombre)}</option>`).join('');
+  await Promise.all([listarAlertas(), listarRiesgo(), listarEval(), listarParams()]);
+}
+
+/* ---------- Alertas ---------- */
+async function listarAlertas() {
+  const regla = $('#f-regla').value, estado = $('#f-estado').value;
+  document.querySelectorAll('.rule').forEach(b => b.classList.toggle('sel', b.dataset.r === regla));
+  const fc = $('#f-cliente');
+  fc.style.display = filtroCliente ? '' : 'none';
+  if (filtroCliente) fc.textContent = `${filtroCliente.nombre} ✕`;
+  const rows = await q(`
+    SELECT a.id, a.regla_codigo, r.severidad::text sev, a.estado::text estado, cl.nombre cliente,
+           a.monto_involucrado::float8 monto, to_char(a.ventana_inicio, 'DD/MM/YYYY') fecha
+    FROM alertas a JOIN reglas r ON r.codigo = a.regla_codigo JOIN clientes cl ON cl.id = a.cliente_id
+    WHERE ($1 = '' OR a.regla_codigo = $1) AND ($2 = '' OR a.estado::text = $2) AND ($3 = 0 OR a.cliente_id = $3)
+    ORDER BY r.puntos DESC, a.monto_involucrado DESC`, [regla, estado, filtroCliente ? filtroCliente.id : 0]);
+  $('#t-alertas').innerHTML = `<tr><th>N.º</th><th>Regla</th><th>Cliente</th><th class="n">Monto</th><th>Desde</th><th>Estado</th></tr>` +
+    (rows.length ? rows.map(a => `<tr class="click ${alertaActual === a.id ? 'sel' : ''}" data-id="${a.id}"><td class="mono">${String(a.id).padStart(3, '0')}</td>
+      <td><span class="tag sev-${a.sev}">${a.regla_codigo}</span></td><td>${esc(a.cliente)}</td><td class="n">${cop(a.monto)}</td>
+      <td class="mono" style="font-size:12.5px">${a.fecha}</td><td><span class="tag st-${a.estado}">${ESTADOS[a.estado]}</span></td></tr>`).join('')
+      : '<tr><td colspan="6" style="color:var(--muted)">No hay alertas con ese filtro.</td></tr>');
+  document.querySelectorAll('#t-alertas tr.click').forEach(tr => tr.onclick = () => verAlerta(+tr.dataset.id));
+}
+$('#f-regla').onchange = listarAlertas; $('#f-estado').onchange = listarAlertas;
+$('#f-cliente').onclick = () => { filtroCliente = null; listarAlertas(); };
+
+const resaltar = sql => esc(sql).split('\n').map(l => {
+  const i = l.indexOf('--');
+  const code = i >= 0 ? l.slice(0, i) : l, com = i >= 0 ? `<span class="c">${l.slice(i)}</span>` : '';
+  return code.replace(/'[^']*'/g, m => `<span class="s">${m}</span>`)
+    .replace(/\b(CREATE|VIEW|AS|SELECT|FROM|JOIN|LEFT|ON|WHERE|AND|OR|GROUP BY|HAVING|ORDER BY|WITH|OVER|PARTITION BY|WINDOW|FILTER|DISTINCT|IS|NOT|NULL|IN|LAG|count|sum|min|max|array_agg)\b(?![^<]*<\/span>)/g, '<span class="k">$1</span>') + com;
+}).join('\n');
+
+async function verAlerta(id, aviso) {
+  alertaActual = id;
+  document.querySelectorAll('#t-alertas tr.click').forEach(tr => tr.classList.toggle('sel', +tr.dataset.id === id));
+  const [a] = await q(`
+    SELECT a.id, a.regla_codigo, r.nombre regla, r.severidad::text sev, a.estado::text estado, a.explicacion,
+           a.num_transacciones, a.analista,
+           cl.nombre, cl.documento, ci.nombre ciudad, cl.ocupacion, cl.ingresos_mensuales::float8 ingreso, cl.es_pep,
+           (SELECT puntaje FROM v_riesgo_clientes v WHERE v.cliente_id = cl.id) puntaje,
+           (SELECT reglas  FROM v_riesgo_clientes v WHERE v.cliente_id = cl.id) reglas_cliente
+    FROM alertas a JOIN reglas r ON r.codigo = a.regla_codigo JOIN clientes cl ON cl.id = a.cliente_id JOIN ciudades ci ON ci.id = cl.ciudad_id
+    WHERE a.id = $1`, [id]);
+  const ev = await q(`
+    SELECT to_char(t.fecha, 'DD/MM/YYYY HH24:MI') fecha, t.tipo::text tipo, t.canal::text canal, t.monto::float8 monto,
+           ci.nombre ciudad, coalesce('Cuenta ' || cp.numero, t.contraparte_externa) contraparte, t.dispositivo
+    FROM transacciones t LEFT JOIN ciudades ci ON ci.id = t.ciudad_id LEFT JOIN cuentas cp ON cp.id = t.contraparte_cuenta_id
+    WHERE t.id = ANY ((SELECT evidencia FROM alertas WHERE id = $1)::bigint[])
+    ORDER BY t.fecha, t.id LIMIT 80`, [id]);
+  const bit = await q(`SELECT to_char(fecha, 'DD/MM/YYYY HH24:MI') fecha, estado_anterior::text de, estado_nuevo::text a, analista, nota FROM bitacora_alertas WHERE alerta_id = $1 ORDER BY id`, [id]);
+  const cerrada = a.estado === 'reportada_ros';
+  $('#detalle').innerHTML = `
+    <div class="dhead">
+      <small>Alerta n.º ${String(a.id).padStart(3, '0')} · <span class="tag sev-${a.sev}">${a.regla_codigo} · severidad ${a.sev}</span></small>
+      <h2>${esc(a.regla)}</h2>
+      ${SELLOS[a.estado] ? `<div class="stamp ${a.estado}">${SELLOS[a.estado]}</div>` : ''}
+    </div>
+    <div class="why"><b>Por qué saltó</b>${esc(a.explicacion)}</div>
+    <div class="who">
+      <div><span>Cliente</span>${esc(a.nombre)}${a.es_pep ? ' <span class="tag sev-alta">PEP</span>' : ''}</div>
+      <div><span>Documento</span><span class="mono" style="display:inline;color:inherit;font-size:13px;text-transform:none;letter-spacing:0">${esc(a.documento)}</span></div>
+      <div><span>Ciudad</span>${esc(a.ciudad)}</div>
+      <div><span>Ocupación</span>${esc(a.ocupacion)}</div>
+      <div><span>Ingreso declarado</span>${cop(a.ingreso)}</div>
+      <div><span>Puntaje de riesgo</span><b class="score" style="color:${a.puntaje >= 70 ? 'var(--red)' : 'var(--ink)'}">${a.puntaje ?? 0}</b> / 100 ${a.reglas_cliente ? `<small class="mono" style="color:var(--muted)">${esc(a.reglas_cliente)}</small>` : ''}</div>
+    </div>
+    <h4>Transacciones que lo prueban (${a.num_transacciones})</h4>
+    <div class="scroll" style="max-height:260px"><table>
+      <tr><th>Fecha</th><th>Tipo</th><th>Canal</th><th class="n">Monto</th><th>Dónde / con quién</th></tr>
+      ${ev.map(t => `<tr><td class="mono" style="white-space:nowrap;font-size:12.5px">${t.fecha}</td><td>${TIPOS[t.tipo]}</td><td>${t.canal}</td><td class="n">${cop(t.monto)}</td>
+        <td>${esc([t.ciudad, t.contraparte, t.dispositivo].filter(Boolean).join(' · '))}</td></tr>`).join('')}
+    </table></div>
+    <details><summary>Ver la consulta SQL que la encontró (${a.regla_codigo})</summary><pre>${resaltar(reglasSQL[a.regla_codigo] || '')}</pre></details>
+    <h4>Decisión del analista</h4>
+    ${cerrada ? '<p style="color:var(--muted);margin:0 0 8px">Esta alerta ya fue reportada. La base de datos no permite cambiarla.</p>' : ''}
+    <div style="display:grid;gap:8px">
+      <input type="text" id="d-analista" placeholder="Analista responsable" value="${esc(a.analista || 'analista.demo')}">
+      <textarea id="d-nota" rows="2" placeholder="Justificación (obligatoria para descartar o reportar)"></textarea>
+    </div>
+    <div class="acts">
+      <button class="btn" data-e="en_revision">Pasar a revisión</button>
+      <button class="btn" data-e="descartada">Descartar (falso positivo)</button>
+      <button class="btn red" data-e="reportada_ros">Reportar a la UIAF (ROS)</button>
+    </div>
+    <div class="msg ${aviso ? aviso[0] : ''}" id="d-msg">${aviso ? esc(aviso[1]) : ''}</div>
+    ${bit.length ? `<h4>Bitácora de auditoría</h4><div class="scroll" style="max-height:180px"><table>
+      <tr><th>Fecha</th><th>Cambio</th><th>Analista</th><th>Nota</th></tr>
+      ${bit.map(b => `<tr><td class="mono" style="white-space:nowrap;font-size:12.5px">${b.fecha}</td><td>${ESTADOS[b.de]} → ${ESTADOS[b.a]}</td><td>${esc(b.analista)}</td><td>${esc(b.nota)}</td></tr>`).join('')}
+    </table></div>` : ''}`;
+  if (!aviso && innerWidth <= 1100) $('#detalle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.querySelectorAll('#detalle [data-e]').forEach(b => b.onclick = async () => {
+    try {
+      await q(`UPDATE alertas SET estado = $1::estado_alerta, analista = $2, nota_analista = $3 WHERE id = $4`,
+        [b.dataset.e, $('#d-analista').value, $('#d-nota').value, id]);
+      await Promise.all([listarAlertas(), listarRiesgo(), pintarCampo(false)]);
+      await verAlerta(id, ['good', `Guardado: la alerta quedó como "${ESTADOS[b.dataset.e]}" y el cambio se anotó en la bitácora.`]);
+    } catch (e) {
+      const m = $('#d-msg'); m.className = 'msg bad'; m.textContent = 'La base de datos rechazó el cambio: ' + e.message;
+    }
+  });
+}
+
+/* ---------- Riesgo y evaluación ---------- */
+async function listarRiesgo() {
+  const rows = await q(`SELECT nombre, ciudad, ocupacion, ingresos_mensuales::float8 ingreso, es_pep, puntaje, reglas, alertas, monto_involucrado::float8 monto
+                        FROM v_riesgo_clientes ORDER BY puntaje DESC, monto_involucrado DESC LIMIT 60`);
+  $('#t-riesgo').innerHTML = `<tr><th>Cliente</th><th>Ciudad</th><th>Ocupación</th><th class="n">Ingreso declarado</th><th>Reglas</th><th class="n">Alertas</th><th class="n">Monto</th><th>Puntaje</th></tr>` +
+    rows.map(r => `<tr><td>${esc(r.nombre)}${r.es_pep ? ' <span class="tag sev-alta">PEP</span>' : ''}</td><td>${esc(r.ciudad)}</td><td>${esc(r.ocupacion)}</td>
+      <td class="n">${cop(r.ingreso)}</td><td class="mono" style="font-size:12.5px">${esc(r.reglas)}</td><td class="n">${r.alertas}</td><td class="n">${cop(r.monto)}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><b class="mono" style="width:26px">${r.puntaje}</b><div class="bar"><i style="width:${r.puntaje}%;${r.puntaje >= 70 ? 'background:var(--red)' : ''}"></i></div></div></td></tr>`).join('');
+}
+async function listarEval() {
+  const rows = await q('SELECT * FROM v_evaluacion_reglas');
+  const [g] = await q('SELECT * FROM v_evaluacion_general');
+  $('#t-eval').innerHTML = `<tr><th>Regla</th><th class="n">Casos sembrados</th><th class="n">Encontrados</th><th class="n">Alertas generadas</th><th class="n">Sobre clientes sin fraude</th></tr>` +
+    rows.map(r => `<tr><td><b class="mono">${r.codigo}</b> · ${esc(r.nombre)}</td><td class="n">${r.casos_sembrados}</td>
+      <td class="n"><b style="${r.casos_encontrados === r.casos_sembrados ? '' : 'color:var(--red)'}">${r.casos_encontrados} ${r.casos_encontrados === r.casos_sembrados ? '✓' : '✗'}</b></td>
+      <td class="n">${r.alertas_generadas}</td><td class="n">${r.alertas_sobre_inocentes}</td></tr>`).join('');
+  $('#eval-nota').innerHTML = `Encontró <b>${g.fraudes_encontrados} de ${g.clientes_con_fraude_sembrado}</b> clientes con fraude sembrado, y además señaló a
+    <b>${g.inocentes_con_alerta}</b> cliente(s) que no eran fraude: personas que vendieron un vehículo y consignaron el pago en efectivo por partes.
+    En los datos se ven igual que un pitufeo; por eso la decisión final es de un analista humano, no de la base de datos.<br><br>
+    <b>Lo que esto prueba y lo que no:</b> prueba que cada regla hace lo que dice sobre datos inventados por el mismo autor. No dice cómo se comportaría con el fraude real de un banco, que es más variado y más difícil.`;
+}
+
+/* ---------- Calibrar ---------- */
+async function contarCasos() {
+  const reglas = await q('SELECT codigo, nombre, vista FROM reglas ORDER BY codigo');
+  const out = [];
+  for (const r of reglas) out.push({ ...r, n: (await q(`SELECT count(*)::int n FROM ${r.vista}`))[0].n });
+  return out;
+}
+async function listarParams() {
+  const ps = await q('SELECT clave, valor::float8 valor, descripcion FROM parametros ORDER BY clave');
+  $('#t-param').innerHTML = `<tr><th>Umbral</th><th>Valor</th></tr>` + ps.map(p => `<tr><td><b class="mono" style="font-size:12.5px">${p.clave}</b><br><span style="color:var(--muted);font-size:12.5px">${esc(p.descripcion)}</span></td>
+    <td><input type="number" data-k="${p.clave}" value="${p.valor}" style="width:130px"></td></tr>`).join('');
+  if (!baseCalib) baseCalib = await contarCasos();
+  pintarCalib(baseCalib);
+}
+function pintarCalib(ahora) {
+  $('#t-calib').innerHTML = `<tr><th>Regla</th><th class="n">Original</th><th class="n">Con estos valores</th></tr>` + ahora.map((r, i) => {
+    const d = r.n - baseCalib[i].n;
+    return `<tr><td><b class="mono">${r.codigo}</b> · ${esc(r.nombre)}</td><td class="n">${baseCalib[i].n}</td><td class="n"><b>${r.n}</b>${d ? ` <span style="color:var(--red)">(${d > 0 ? '+' : ''}${d})</span>` : ''}</td></tr>`;
+  }).join('');
+}
+$('#recalc').onclick = async () => {
+  const m = $('#calib-msg'); m.className = 'msg good'; m.textContent = 'Recalculando…'; await pintar();
+  try {
+    for (const i of document.querySelectorAll('#t-param input')) await q('UPDATE parametros SET valor = $1 WHERE clave = $2', [Number(i.value), i.dataset.k]);
+    const t0 = performance.now(); const ahora = await contarCasos();
+    pintarCalib(ahora);
+    m.textContent = `Listo: las 6 vistas se volvieron a evaluar en ${seg1((performance.now() - t0) / 1000)} s.`;
+  } catch (e) { m.className = 'msg bad'; m.textContent = e.message; }
+};
+$('#restaurar').onclick = async () => {
+  for (const p of paramsOriginales) await q('UPDATE parametros SET valor = $1 WHERE clave = $2', [p.valor, p.clave]);
+  await listarParams(); $('#calib-msg').className = 'msg';
+};
+
+/* ---------- Consola ---------- */
+const EJEMPLOS = [
+  ['Resultado por regla', `SELECT * FROM v_evaluacion_reglas;`],
+  ['Los 10 clientes de mayor riesgo', `SELECT nombre, ciudad, puntaje, reglas, pesos(monto_involucrado) AS monto\nFROM v_riesgo_clientes\nORDER BY puntaje DESC, monto_involucrado DESC\nLIMIT 10;`],
+  ['Efectivo depositado por ciudad', `SELECT ci.nombre AS ciudad, count(*) AS depositos, pesos(sum(t.monto)) AS total\nFROM transacciones t\nJOIN ciudades ci ON ci.id = t.ciudad_id\nWHERE t.tipo = 'deposito_efectivo'\nGROUP BY ci.nombre\nORDER BY sum(t.monto) DESC;`],
+  ['Intentar borrar una transacción', `DELETE FROM transacciones WHERE id = 1;`],
+  ['Intentar un monto negativo', `INSERT INTO transacciones (cuenta_id, fecha, tipo, canal, monto, ciudad_id)\nVALUES (1, now(), 'retiro_efectivo', 'cajero', -50000, 1);`],
+  ['Plan de ejecución con índice', `EXPLAIN ANALYZE\nSELECT * FROM transacciones\nWHERE cuenta_id = 9\nORDER BY fecha;`],
+];
+$('#ejemplos').innerHTML = EJEMPLOS.map((e, i) => `<button class="btn" data-i="${i}">${e[0]}</button>`).join('');
+document.querySelectorAll('#ejemplos button').forEach(b => b.onclick = () => { $('#sql').value = EJEMPLOS[b.dataset.i][1]; ejecutar(); });
+$('#sql').value = EJEMPLOS[0][1];
+const celda = v => v === null ? '<span style="color:var(--muted)">NULL</span>' : esc(v instanceof Date ? v.toISOString().slice(0, 19).replace('T', ' ') : Array.isArray(v) ? '{' + v.join(', ') + '}' : typeof v === 'object' ? JSON.stringify(v) : v);
+async function ejecutar() {
+  const m = $('#sql-msg'); m.className = 'msg'; $('#t-sql').innerHTML = ''; $('#sql-info').textContent = '';
+  try {
+    const t0 = performance.now();
+    const res = await db.exec($('#sql').value);
+    const r = res[res.length - 1], ms = (performance.now() - t0).toFixed(0);
+    if (r && r.fields.length) {
+      $('#t-sql').innerHTML = '<tr>' + r.fields.map(f => `<th>${esc(f.name)}</th>`).join('') + '</tr>' +
+        r.rows.slice(0, 200).map(row => '<tr>' + r.fields.map(f => `<td class="mono" style="font-size:12.5px">${celda(row[f.name])}</td>`).join('') + '</tr>').join('');
+      $('#sql-info').textContent = `${r.rows.length} fila(s) · ${ms} ms` + (r.rows.length > 200 ? ' · se muestran 200' : '');
+    } else { m.className = 'msg good'; m.textContent = `Ejecutado en ${ms} ms. Filas afectadas: ${r?.affectedRows ?? 0}.`; }
+  } catch (e) { m.className = 'msg bad'; m.textContent = 'PostgreSQL respondió: ' + e.message; }
+}
+$('#run').onclick = ejecutar;
+$('#sql').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ejecutar(); } });
+
+/* ---------- Pestañas ---------- */
+function activar(p) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.p === p));
+  document.querySelectorAll('.pane').forEach(x => x.classList.toggle('on', x.id === 'p-' + p));
+}
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => activar(t.dataset.p));
+
+arrancar();
+</script>
+</body>
+</html>
