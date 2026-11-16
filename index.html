@@ -321,7 +321,9 @@ const esc = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const num = n => Math.round(Number(n)).toLocaleString('es-CO');
 const cop = n => '$' + num(n);
 const seg1 = s => s.toFixed(1).replace('.', ',');
-const pintar = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+// Deja que el navegador pinte antes de un paso pesado. El setTimeout de respaldo evita
+// que el arranque se quede esperando si la página se abrió en una pestaña en segundo plano.
+const pintar = () => new Promise(r => { requestAnimationFrame(() => setTimeout(r, 0)); setTimeout(r, 120); });
 const TIPOS = { deposito_efectivo: 'Depósito en efectivo', retiro_efectivo: 'Retiro en efectivo', transferencia_recibida: 'Transferencia recibida',
   transferencia_enviada: 'Transferencia enviada', compra_tarjeta: 'Compra con tarjeta', pago_pse: 'Pago PSE' };
 const ESTADOS = { nueva: 'Nueva', en_revision: 'En revisión', descartada: 'Descartada', reportada_ros: 'Reportada (ROS)' };
